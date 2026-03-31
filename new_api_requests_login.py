@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Login to a New API / Airouter site with requests and fetch user profile."""
+"""Log in to a New API deployment with requests and fetch user profile data."""
 
 from __future__ import annotations
 
@@ -13,41 +13,41 @@ from urllib.parse import urljoin
 import requests
 
 
-DEFAULT_BASE_URL = "https://airouter.service.itstudio.club"
+DEFAULT_BASE_URL = "https://your-new-api.example.com"
 DEFAULT_TIMEOUT = 20
 
 
-class AirouterLoginError(RuntimeError):
+class NewAPILoginError(RuntimeError):
     pass
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Login to Airouter with requests and fetch user profile data.",
+        description="Log in to a New API deployment with requests and fetch user profile data.",
     )
     parser.add_argument(
         "--base-url",
-        default=os.getenv("AIROUTER_BASE_URL", DEFAULT_BASE_URL),
-        help=f"Site base URL. Default: {DEFAULT_BASE_URL}",
+        default=os.getenv("NEW_API_BASE_URL", DEFAULT_BASE_URL),
+        help="Deployment base URL. Set NEW_API_BASE_URL or pass --base-url.",
     )
     parser.add_argument(
         "--username",
-        default=os.getenv("AIROUTER_USERNAME"),
-        help="Login username. Can also come from AIROUTER_USERNAME.",
+        default=os.getenv("NEW_API_USERNAME"),
+        help="Login username. Can also come from NEW_API_USERNAME.",
     )
     parser.add_argument(
         "--password",
-        default=os.getenv("AIROUTER_PASSWORD"),
-        help="Login password. Can also come from AIROUTER_PASSWORD.",
+        default=os.getenv("NEW_API_PASSWORD"),
+        help="Login password. Can also come from NEW_API_PASSWORD.",
     )
     parser.add_argument(
         "--twofa-code",
-        default=os.getenv("AIROUTER_2FA_CODE"),
+        default=os.getenv("NEW_API_2FA_CODE"),
         help="Optional 2FA or backup code. Used only when the account requires 2FA.",
     )
     parser.add_argument(
         "--turnstile-token",
-        default=os.getenv("AIROUTER_TURNSTILE_TOKEN", ""),
+        default=os.getenv("NEW_API_TURNSTILE_TOKEN", ""),
         help="Optional Cloudflare Turnstile token if the site enables it.",
     )
     parser.add_argument(
@@ -69,10 +69,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def ensure_credentials(args: argparse.Namespace) -> None:
+def ensure_required_config(args: argparse.Namespace) -> None:
+    if not args.base_url or args.base_url == DEFAULT_BASE_URL:
+        raise NewAPILoginError(
+            "missing base URL: use --base-url or NEW_API_BASE_URL",
+        )
     if not args.username or not args.password:
-        raise AirouterLoginError(
-            "missing credentials: use --username/--password or AIROUTER_USERNAME/AIROUTER_PASSWORD",
+        raise NewAPILoginError(
+            "missing credentials: use --username/--password or NEW_API_USERNAME/NEW_API_PASSWORD",
         )
 
 
@@ -80,17 +84,17 @@ def decode_json(response: requests.Response) -> dict[str, Any]:
     try:
         return response.json()
     except ValueError as exc:
-        raise AirouterLoginError(
+        raise NewAPILoginError(
             f"expected JSON from {response.request.method} {response.url}, got: {response.text[:300]!r}",
         ) from exc
 
 
 def require_success(payload: dict[str, Any], action: str) -> dict[str, Any]:
     if not payload.get("success"):
-        raise AirouterLoginError(f"{action} failed: {payload.get('message') or payload}")
+        raise NewAPILoginError(f"{action} failed: {payload.get('message') or payload}")
     data = payload.get("data")
     if data is None:
-        raise AirouterLoginError(f"{action} returned no data")
+        raise NewAPILoginError(f"{action} returned no data")
     return data
 
 
@@ -98,7 +102,7 @@ def build_session(timeout: int) -> requests.Session:
     session = requests.Session()
     session.headers.update(
         {
-            "User-Agent": "airouter-requests-login/1.0",
+            "User-Agent": "new-api-requests-login/1.0",
             "Cache-Control": "no-store",
             "Accept": "application/json, text/plain, */*",
         }
@@ -135,8 +139,8 @@ def login(
 
     if data.get("require_2fa"):
         if not twofa_code:
-            raise AirouterLoginError(
-                "account requires 2FA; pass --twofa-code or AIROUTER_2FA_CODE",
+            raise NewAPILoginError(
+                "account requires 2FA; pass --twofa-code or NEW_API_2FA_CODE",
             )
         verify_url = urljoin(base_url.rstrip("/") + "/", "api/user/login/2fa")
         verify_response = session.post(verify_url, json={"code": twofa_code})
@@ -146,7 +150,7 @@ def login(
     required_keys = {"id", "username", "display_name", "group", "role", "status"}
     missing = sorted(required_keys - data.keys())
     if missing:
-        raise AirouterLoginError(f"login response missing keys: {', '.join(missing)}")
+        raise NewAPILoginError(f"login response missing keys: {', '.join(missing)}")
     return data
 
 
@@ -171,7 +175,7 @@ def main() -> int:
     args = parse_args()
 
     try:
-        ensure_credentials(args)
+        ensure_required_config(args)
         session = build_session(args.timeout)
         login_data = login(
             session=session,
@@ -200,7 +204,7 @@ def main() -> int:
         body = exc.response.text[:600] if exc.response is not None else ""
         print(f"HTTP error: {exc}\n{body}", file=sys.stderr)
         return 1
-    except AirouterLoginError as exc:
+    except NewAPILoginError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except requests.RequestException as exc:

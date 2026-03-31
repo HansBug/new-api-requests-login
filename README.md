@@ -1,6 +1,6 @@
-# airouter-requests-login
+# new-api-requests-login
 
-Use `requests` to log in to a New API / Airouter deployment and fetch real user profile data from `/api/user/self`.
+Use `requests` to log in to a New API deployment and fetch real user profile data from `/api/user/self`.
 
 ## What This Solves
 
@@ -29,8 +29,8 @@ pip install -r requirements.txt
 ### Option 1: command line arguments
 
 ```bash
-python airouter_requests_login.py \
-  --base-url 'https://airouter.service.itstudio.club' \
+python new_api_requests_login.py \
+  --base-url 'https://your-new-api.example.com' \
   --username 'your_username' \
   --password 'your_password' \
   --with-groups
@@ -39,10 +39,9 @@ python airouter_requests_login.py \
 ### Option 2: environment variables
 
 ```bash
-export AIROUTER_BASE_URL='https://airouter.service.itstudio.club'
-export AIROUTER_USERNAME='your_username'
-export AIROUTER_PASSWORD='your_password'
-python airouter_requests_login.py --with-groups --with-models
+cp .env.example .env
+source .env
+python new_api_requests_login.py --with-groups --with-models
 ```
 
 ## Optional Flags
@@ -78,6 +77,7 @@ On success the script prints JSON like:
 
 ## Notes
 
-- The repository intentionally does not store any credentials.
+- The repository intentionally does not store any deployment-specific credentials.
+- The committed `.env.example` uses placeholder values; keep your real `.env` local.
 - If the target deployment has custom anti-bot or SSO logic enabled, the login process may require extra parameters.
 - For standard password login on New API style deployments, this script is usually enough.
