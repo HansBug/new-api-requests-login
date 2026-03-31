@@ -21,8 +21,6 @@ jobs:
       NEW_API_BASE_URL: ${{ secrets.NEW_API_BASE_URL }}
       NEW_API_USERNAME: ${{ secrets.NEW_API_USERNAME }}
       NEW_API_PASSWORD: ${{ secrets.NEW_API_PASSWORD }}
-      NEW_API_2FA_CODE: ${{ secrets.NEW_API_2FA_CODE }}
-      NEW_API_TURNSTILE_TOKEN: ${{ secrets.NEW_API_TURNSTILE_TOKEN }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
