@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository contains a single-file Python client and CLI for logging in to a generic `new-api` deployment and reading the authenticated user profile.
+This repository contains a single-file Python client and CLI for logging in to a generic `new-api` deployment, optionally running daily check-in, and reading the authenticated user profile.
 
 The project is intentionally small and open-source-safe:
 
@@ -10,13 +10,16 @@ The project is intentionally small and open-source-safe:
 - no extra third-party dependencies beyond `requests`
 - no concrete deployment names in code or docs
 - a CLI entrypoint and an importable client API living in the same file
+- a small `Makefile` for common local workflows
 
 ## Repository Structure
 
 Current top-level layout:
 
-- `new_api_requests_login.py`
+- `newapi.py`
   Main implementation. This file contains the importable client, result/error models, request handling, and the CLI code under `if __name__ == "__main__":`.
+- `Makefile`
+  Convenience entrypoints for common local commands such as login and check-in.
 - `README.md`
   Public-facing usage documentation.
 - `AGENTS.md`
@@ -36,7 +39,7 @@ Current top-level layout:
 
 ## Architecture Overview
 
-The codebase is intentionally split into two logical layers inside `new_api_requests_login.py`:
+The codebase is intentionally split into two logical layers inside `newapi.py`:
 
 1. Importable core layer
    This is everything above `if __name__ == "__main__":`.
@@ -104,6 +107,27 @@ else:
 
 Do not change this workflow unless explicitly requested.
 
+### `CheckinResult`
+
+`CheckinResult` is the public result model for daily check-in.
+
+Expected shape:
+
+- `success`
+- `message`
+- `already_checked_in`
+- `payload`
+- `error`
+
+The normal importable workflow is:
+
+```python
+client = Client()
+auth_result = client.auth(username, password)
+if auth_result.success:
+    checkin_result = client.checkin()
+```
+
 ## `Client` Architecture
 
 `Client` is the only network-facing abstraction and should remain the main programmatic entrypoint.
@@ -125,6 +149,7 @@ It may read environment variables for defaults, but it must not read `.env` file
 Current public surface:
 
 - `auth(...)`
+- `checkin(...)`
 - `fetch_optional(...)`
 
 Keep this surface small and coherent.
@@ -143,11 +168,20 @@ Authentication currently follows this sequence:
 6. GET `api/user/self`.
 7. Return a structured `AuthResult`.
 
-All network request execution is funneled through `_request_data(...)`.
+Daily check-in currently follows this sequence:
+
+1. Require an authenticated session that already contains `New-API-User`.
+2. POST to `api/user/checkin`.
+3. Treat `success=true` as success.
+4. Treat the message `今日已签到` as a non-error already-done state.
+5. Return a structured `CheckinResult`.
+
+All network request execution is funneled through `_request_payload(...)` and `_request_data(...)`.
 
 This is an important invariant. If new endpoints are added, prefer reusing the existing helper stack:
 
 - `_request_data(...)`
+- `_request_payload(...)`
 - `_decode_json(...)`
 - `_require_success(...)`
 - `_detail_from_response(...)`
@@ -178,6 +212,7 @@ Success output should:
 - clearly mark success
 - show the deployment target
 - show a concise user summary
+- show check-in status when requested
 - avoid dumping the full raw profile by default
 
 Failure output should:
@@ -199,11 +234,12 @@ Color and styling rules:
 
 Unless the user explicitly asks for a breaking change, preserve all of the following:
 
-- script filename: `new_api_requests_login.py`
+- script filename: `newapi.py`
 - environment variable names: `NEW_API_BASE_URL`, `NEW_API_USERNAME`, `NEW_API_PASSWORD`, `NEW_API_2FA_CODE`, `NEW_API_TURNSTILE_TOKEN`
 - CLI flags and their meanings
 - exit code behavior
 - `Client().auth(...)` result-driven usage pattern
+- `Client().checkin(...)` result-driven usage pattern
 - no automatic `.env` file parsing inside Python
 - no new non-stdlib dependencies beyond `requests`
 
@@ -234,7 +270,7 @@ For meaningful changes, verify both of these paths when possible:
    Example: import `Client`, call `client.auth(...)`, inspect `AuthResult`
 
 2. CLI path
-   Example: run `python new_api_requests_login.py` with exported environment variables
+   Example: run `python newapi.py` with exported environment variables
 
 When validating failures, prefer confirming that:
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Log in to a New API deployment with requests and fetch user profile data."""
+"""Log in to a New API deployment, optionally run daily check-in, and fetch user profile data."""
 
 from __future__ import annotations
 
@@ -82,6 +82,27 @@ class AuthResult:
         return data
 
 
+@dataclass
+class CheckinResult:
+    success: bool
+    message: str
+    already_checked_in: bool = False
+    payload: dict[str, Any] | None = None
+    error: ErrorDetail | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "success": self.success,
+            "message": self.message,
+            "already_checked_in": self.already_checked_in,
+        }
+        if self.payload is not None:
+            data["payload"] = self.payload
+        if self.error is not None:
+            data["error"] = self.error.to_dict()
+        return data
+
+
 class Client:
     def __init__(
         self,
@@ -101,6 +122,7 @@ class Client:
         self.timeout = timeout
         self.turnstile_token = resolved_turnstile or ""
         self.session = session or self._build_session(timeout)
+        self.last_auth_result: AuthResult | None = None
 
     def auth(
         self,
@@ -121,7 +143,9 @@ class Client:
                 message="missing base URL: use --base-url or NEW_API_BASE_URL",
                 details={"required": ["NEW_API_BASE_URL"]},
             )
-            return AuthResult(success=False, message=detail.message, error=detail)
+            result = AuthResult(success=False, message=detail.message, error=detail)
+            self.last_auth_result = result
+            return result
         if not resolved_username or not resolved_password:
             detail = ErrorDetail(
                 type="configuration_error",
@@ -132,7 +156,9 @@ class Client:
                 ),
                 details={"required": ["NEW_API_USERNAME", "NEW_API_PASSWORD"]},
             )
-            return AuthResult(success=False, message=detail.message, error=detail)
+            result = AuthResult(success=False, message=detail.message, error=detail)
+            self.last_auth_result = result
+            return result
 
         try:
             login_data = self._login(
@@ -141,14 +167,18 @@ class Client:
                 twofa_code=resolved_twofa,
             )
             profile = self._fetch_user_self(int(login_data["id"]))
-            return AuthResult(
+            result = AuthResult(
                 success=True,
                 message="authentication succeeded",
                 login=login_data,
                 profile=profile,
             )
+            self.last_auth_result = result
+            return result
         except NewAPIClientError as exc:
-            return AuthResult(success=False, message=exc.detail.message, error=exc.detail)
+            result = AuthResult(success=False, message=exc.detail.message, error=exc.detail)
+            self.last_auth_result = result
+            return result
         except Exception as exc:  # pragma: no cover - last-resort safety net
             detail = ErrorDetail(
                 type="unexpected_error",
@@ -156,7 +186,63 @@ class Client:
                 message=str(exc),
                 exception_type=type(exc).__name__,
             )
-            return AuthResult(success=False, message=detail.message, error=detail)
+            result = AuthResult(success=False, message=detail.message, error=detail)
+            self.last_auth_result = result
+            return result
+
+    def checkin(self) -> CheckinResult:
+        user_id = self.session.headers.get("New-API-User")
+        if not user_id:
+            detail = ErrorDetail(
+                type="configuration_error",
+                step="checkin",
+                message="checkin requires an authenticated session; call auth() first",
+                details={"required": ["authenticated session", "New-API-User header"]},
+            )
+            return CheckinResult(success=False, message=detail.message, error=detail)
+
+        try:
+            response, payload = self._request_payload(
+                "POST",
+                "api/user/checkin",
+                step="checkin",
+                headers=self._build_checkin_headers(user_id),
+            )
+        except NewAPIClientError as exc:
+            return CheckinResult(success=False, message=exc.detail.message, error=exc.detail)
+        except Exception as exc:  # pragma: no cover - last-resort safety net
+            detail = ErrorDetail(
+                type="unexpected_error",
+                step="checkin",
+                message=str(exc),
+                exception_type=type(exc).__name__,
+            )
+            return CheckinResult(success=False, message=detail.message, error=detail)
+
+        message = str(payload.get("message") or "")
+        if payload.get("success") is True:
+            return CheckinResult(
+                success=True,
+                message=message or "check-in succeeded",
+                payload=payload,
+            )
+
+        if message == "今日已签到":
+            return CheckinResult(
+                success=True,
+                message=message,
+                already_checked_in=True,
+                payload=payload,
+            )
+
+        detail = self._detail_from_response(
+            "api_error",
+            "checkin",
+            f"checkin failed: {message or 'unknown error'}",
+            response=response,
+            response_json=payload,
+        )
+        return CheckinResult(success=False, message=detail.message, payload=payload, error=detail)
 
     def fetch_optional(self, path: str) -> Any:
         _, data = self._request_data("GET", path, step=f"fetch {path}")
@@ -218,6 +304,25 @@ class Client:
         absolute_url: bool = False,
         **kwargs: Any,
     ) -> tuple[requests.Response, dict[str, Any]]:
+        response, payload = self._request_payload(
+            method,
+            path_or_url,
+            step=step,
+            absolute_url=absolute_url,
+            **kwargs,
+        )
+        data = self._require_success(response, payload, step)
+        return response, data
+
+    def _request_payload(
+        self,
+        method: str,
+        path_or_url: str,
+        *,
+        step: str,
+        absolute_url: bool = False,
+        **kwargs: Any,
+    ) -> tuple[requests.Response, dict[str, Any]]:
         url = path_or_url if absolute_url else self._build_url(path_or_url)
 
         try:
@@ -233,8 +338,7 @@ class Client:
             raise NewAPIClientError(self._http_error(step, response, exc)) from exc
 
         payload = self._decode_json(response, step)
-        data = self._require_success(response, payload, step)
-        return response, data
+        return response, payload
 
     def _decode_json(self, response: requests.Response, step: str) -> dict[str, Any]:
         try:
@@ -380,12 +484,20 @@ class Client:
     def _build_url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
 
+    def _build_checkin_headers(self, user_id: str) -> dict[str, str]:
+        return {
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Origin": self.base_url,
+            "Referer": self._build_url("console/personal"),
+            "New-API-User": str(user_id),
+        }
+
     @staticmethod
     def _build_session(timeout: int) -> requests.Session:
         session = requests.Session()
         session.headers.update(
             {
-                "User-Agent": "new-api-requests-login/1.0",
+                "User-Agent": "newapi/1.0",
                 "Cache-Control": "no-store",
                 "Accept": "application/json, text/plain, */*",
             }
@@ -413,7 +525,7 @@ if __name__ == "__main__":
 
     def parse_args() -> argparse.Namespace:
         parser = argparse.ArgumentParser(
-            description="Log in to a New API deployment with requests and fetch user profile data.",
+            description="Log in to a New API deployment, optionally run daily check-in, and fetch user profile data.",
         )
         parser.add_argument(
             "--base-url",
@@ -439,6 +551,11 @@ if __name__ == "__main__":
             "--turnstile-token",
             default=os.getenv("NEW_API_TURNSTILE_TOKEN", ""),
             help="Optional Cloudflare Turnstile token if the site enables it.",
+        )
+        parser.add_argument(
+            "--checkin",
+            action="store_true",
+            help="Run daily check-in after successful login.",
         )
         parser.add_argument(
             "--with-groups",
@@ -530,6 +647,7 @@ if __name__ == "__main__":
         auth_result: AuthResult,
         *,
         base_url: str,
+        checkin_result: CheckinResult | None = None,
         extra_results: dict[str, Any] | None = None,
         stream=sys.stdout,
     ) -> None:
@@ -543,6 +661,32 @@ if __name__ == "__main__":
             ),
             file=stream,
         )
+        if checkin_result is not None:
+            print("", file=stream)
+            print(style("Check-In", ANSI_BOLD, ANSI_YELLOW, stream=stream), file=stream)
+            checkin_status = (
+                "already checked in today"
+                if checkin_result.already_checked_in
+                else "check-in completed"
+            )
+            print(
+                render_pairs(
+                    [
+                        ("Status", checkin_status),
+                        ("Message", checkin_result.message or "-"),
+                    ],
+                    stream=stream,
+                ),
+                file=stream,
+            )
+            payload_data = (
+                checkin_result.payload.get("data")
+                if isinstance(checkin_result.payload, dict)
+                else None
+            )
+            if payload_data not in (None, "", {}, []):
+                print("", file=stream)
+                print(render_json_block("Check-In Payload", payload_data, stream=stream), file=stream)
         if extra_results:
             for title, payload in extra_results.items():
                 print("", file=stream)
@@ -617,6 +761,18 @@ if __name__ == "__main__":
             return 1
 
         try:
+            checkin_result: CheckinResult | None = None
+            if args.checkin:
+                checkin_result = client.checkin()
+                if not checkin_result.success:
+                    detail = checkin_result.error or ErrorDetail(
+                        type="checkin_error",
+                        step="checkin",
+                        message=checkin_result.message,
+                    )
+                    print_failure(detail, auth_result=auth_result)
+                    return 1
+
             extra_results: dict[str, Any] = {}
             if args.with_groups:
                 extra_results["groups"] = client.fetch_optional("/api/user/self/groups")
@@ -625,6 +781,7 @@ if __name__ == "__main__":
             print_success(
                 auth_result,
                 base_url=client.base_url,
+                checkin_result=checkin_result,
                 extra_results=extra_results or None,
             )
             return 0

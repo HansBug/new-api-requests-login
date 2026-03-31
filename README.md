@@ -1,6 +1,6 @@
 # new-api-requests-login
 
-Use `requests` to log in to a New API deployment and fetch real user profile data from `/api/user/self`.
+Use `requests` to log in to a New API deployment, optionally run daily check-in, and fetch real user profile data from `/api/user/self`.
 
 ## What This Solves
 
@@ -10,6 +10,7 @@ Some New API deployments look simple at first glance, but the dashboard flow has
 2. Keep the returned `session` cookie.
 3. Add `New-API-User: <user_id>` on later authenticated requests.
 4. Then call `/api/user/self` to confirm the login and fetch personal data.
+5. Optionally call `/api/user/checkin` with the authenticated session and `New-API-User` header.
 
 This repository automates that flow with a small Python script.
 
@@ -29,7 +30,7 @@ pip install -r requirements.txt
 ### Option 1: command line arguments
 
 ```bash
-python new_api_requests_login.py \
+python newapi.py \
   --base-url 'https://your-new-api.example.com' \
   --username 'your_username' \
   --password 'your_password' \
@@ -41,7 +42,7 @@ python new_api_requests_login.py \
 ```bash
 cp .env.example .env
 source .env
-python new_api_requests_login.py
+python newapi.py
 ```
 
 The script only reads real environment variables from the current process. `.env` is just a shell helper file, so load it with `source .env` first if you want to use that format.
@@ -49,7 +50,7 @@ The script only reads real environment variables from the current process. `.env
 ## Programmatic Usage
 
 ```python
-from new_api_requests_login import Client
+from newapi import Client
 
 client = Client()
 auth_result = client.auth("your_username", "your_password")
@@ -60,13 +61,35 @@ else:
     print(auth_result.error.to_dict())
 ```
 
+Check-in can be used after authentication:
+
+```python
+from newapi import Client
+
+client = Client()
+auth_result = client.auth("your_username", "your_password")
+if auth_result.success:
+    checkin_result = client.checkin()
+    print(checkin_result.to_dict())
+```
+
 ## Optional Flags
 
+- `--checkin`: run daily check-in after successful login
 - `--twofa-code`: TOTP code or backup code if the account requires 2FA
 - `--turnstile-token`: pass a Turnstile token if the target site enables Turnstile
 - `--with-groups`: also fetch `/api/user/self/groups`
 - `--with-models`: also fetch `/api/user/models`
 - `--timeout`: request timeout in seconds
+
+## Make Targets
+
+```bash
+make login
+make checkin
+```
+
+`make checkin` runs the login flow first and then performs daily check-in.
 
 ## Output
 
@@ -87,6 +110,8 @@ Successful authentication looks like:
   Used Quota   : 654,321
   Requests     : 42
 ```
+
+When `--checkin` is enabled, the CLI also prints a separate check-in section with the daily check-in result.
 
 Failed authentication prints a structured debug-friendly error block to `stderr`, including the failed step, request metadata, and server response content when available.
 
