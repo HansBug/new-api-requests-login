@@ -46,6 +46,20 @@ python new_api_requests_login.py
 
 The script only reads real environment variables from the current process. `.env` is just a shell helper file, so load it with `source .env` first if you want to use that format.
 
+## Programmatic Usage
+
+```python
+from new_api_requests_login import Client
+
+client = Client()
+auth_result = client.auth("your_username", "your_password")
+
+if auth_result.success:
+    print(auth_result.profile)
+else:
+    print(auth_result.error.to_dict())
+```
+
 ## Optional Flags
 
 - `--twofa-code`: TOTP code or backup code if the account requires 2FA
@@ -56,26 +70,27 @@ The script only reads real environment variables from the current process. `.env
 
 ## Output
 
-On success the script prints JSON like:
+The CLI prints human-readable terminal output instead of raw JSON.
 
-```json
-{
-  "login": {
-    "id": 100,
-    "username": "example",
-    "display_name": "example",
-    "group": "default",
-    "role": 1,
-    "status": 1
-  },
-  "profile": {
-    "id": 100,
-    "username": "example",
-    "display_name": "example",
-    "group": "default"
-  }
-}
+Successful authentication looks like:
+
+```text
+[OK] authentication succeeded
+  Deployment   : https://your-new-api.example.com
+  User ID      : 100
+  Username     : example
+  Display Name : example
+  Group        : default
+  Role         : 1
+  Status       : 1
+  Quota        : 123,456
+  Used Quota   : 654,321
+  Requests     : 42
 ```
+
+Failed authentication prints a structured debug-friendly error block to `stderr`, including the failed step, request metadata, and server response content when available.
+
+When the terminal supports ANSI colors, success and failure markers are highlighted automatically.
 
 ## Notes
 
