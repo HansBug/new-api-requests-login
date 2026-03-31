@@ -41,8 +41,10 @@ python new_api_requests_login.py \
 ```bash
 cp .env.example .env
 source .env
-python new_api_requests_login.py --with-groups --with-models
+python new_api_requests_login.py
 ```
+
+The script only reads real environment variables from the current process. `.env` is just a shell helper file, so load it with `source .env` first if you want to use that format.
 
 ## Optional Flags
 

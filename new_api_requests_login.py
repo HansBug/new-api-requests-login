@@ -13,7 +13,6 @@ from urllib.parse import urljoin
 import requests
 
 
-DEFAULT_BASE_URL = "https://your-new-api.example.com"
 DEFAULT_TIMEOUT = 20
 
 
@@ -27,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--base-url",
-        default=os.getenv("NEW_API_BASE_URL", DEFAULT_BASE_URL),
+        default=os.getenv("NEW_API_BASE_URL"),
         help="Deployment base URL. Set NEW_API_BASE_URL or pass --base-url.",
     )
     parser.add_argument(
@@ -70,7 +69,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_required_config(args: argparse.Namespace) -> None:
-    if not args.base_url or args.base_url == DEFAULT_BASE_URL:
+    if not args.base_url:
         raise NewAPILoginError(
             "missing base URL: use --base-url or NEW_API_BASE_URL",
         )
