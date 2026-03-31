@@ -234,6 +234,7 @@ Color and styling rules:
 
 Unless the user explicitly asks for a breaking change, preserve all of the following:
 
+- runtime compatibility across Python `3.7` through `3.14`
 - script filename: `newapi.py`
 - environment variable names: `NEW_API_BASE_URL`, `NEW_API_USERNAME`, `NEW_API_PASSWORD`, `NEW_API_2FA_CODE`, `NEW_API_TURNSTILE_TOKEN`
 - CLI flags and their meanings
@@ -278,6 +279,7 @@ When validating failures, prefer confirming that:
 - the failed step is visible
 - debug metadata is present
 - the output remains readable
+- compatibility-sensitive changes should be checked against the Python `3.7` to `3.14` support target, avoiding syntax or typing constructs that require a newer interpreter
 
 ## Secrets and Local State
 

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Log in to a New API deployment, optionally run daily check-in, and fetch user profile data."""
 
-from __future__ import annotations
-
 import argparse
 import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
@@ -23,16 +21,16 @@ class ErrorDetail:
     type: str
     step: str
     message: str
-    exception_type: str | None = None
-    method: str | None = None
-    url: str | None = None
-    status_code: int | None = None
-    response_json: Any | None = None
-    response_body_excerpt: str | None = None
-    details: Any | None = None
+    exception_type: Optional[str] = None
+    method: Optional[str] = None
+    url: Optional[str] = None
+    status_code: Optional[int] = None
+    response_json: Optional[Any] = None
+    response_body_excerpt: Optional[str] = None
+    details: Optional[Any] = None
 
-    def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
             "type": self.type,
             "step": self.step,
             "message": self.message,
@@ -64,12 +62,12 @@ class NewAPIClientError(RuntimeError):
 class AuthResult:
     success: bool
     message: str
-    login: dict[str, Any] | None = None
-    profile: dict[str, Any] | None = None
-    error: ErrorDetail | None = None
+    login: Optional[Dict[str, Any]] = None
+    profile: Optional[Dict[str, Any]] = None
+    error: Optional[ErrorDetail] = None
 
-    def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
             "success": self.success,
             "message": self.message,
         }
@@ -87,11 +85,11 @@ class CheckinResult:
     success: bool
     message: str
     already_checked_in: bool = False
-    payload: dict[str, Any] | None = None
-    error: ErrorDetail | None = None
+    payload: Optional[Dict[str, Any]] = None
+    error: Optional[ErrorDetail] = None
 
-    def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
             "success": self.success,
             "message": self.message,
             "already_checked_in": self.already_checked_in,
@@ -106,11 +104,11 @@ class CheckinResult:
 class Client:
     def __init__(
         self,
-        base_url: str | None = None,
+        base_url: Optional[str] = None,
         *,
         timeout: int = DEFAULT_TIMEOUT,
-        turnstile_token: str | None = None,
-        session: requests.Session | None = None,
+        turnstile_token: Optional[str] = None,
+        session: Optional[requests.Session] = None,
     ) -> None:
         resolved_base_url = base_url if base_url is not None else os.getenv("NEW_API_BASE_URL")
         resolved_turnstile = (
@@ -122,14 +120,14 @@ class Client:
         self.timeout = timeout
         self.turnstile_token = resolved_turnstile or ""
         self.session = session or self._build_session(timeout)
-        self.last_auth_result: AuthResult | None = None
+        self.last_auth_result: Optional[AuthResult] = None
 
     def auth(
         self,
-        username: str | None = None,
-        password: str | None = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         *,
-        twofa_code: str | None = None,
+        twofa_code: Optional[str] = None,
     ) -> AuthResult:
         resolved_username = username if username is not None else os.getenv("NEW_API_USERNAME")
         resolved_password = password if password is not None else os.getenv("NEW_API_PASSWORD")
@@ -253,8 +251,8 @@ class Client:
         *,
         username: str,
         password: str,
-        twofa_code: str | None = None,
-    ) -> dict[str, Any]:
+        twofa_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
         login_url = self._build_url("api/user/login")
         if self.turnstile_token:
             login_url = f"{login_url}?turnstile={self.turnstile_token}"
@@ -290,7 +288,7 @@ class Client:
         self._validate_login_data(data, response=response)
         return data
 
-    def _fetch_user_self(self, user_id: int) -> dict[str, Any]:
+    def _fetch_user_self(self, user_id: int) -> Dict[str, Any]:
         self.session.headers["New-API-User"] = str(user_id)
         _, data = self._request_data("GET", "api/user/self", step="fetch user profile")
         return data
@@ -303,7 +301,7 @@ class Client:
         step: str,
         absolute_url: bool = False,
         **kwargs: Any,
-    ) -> tuple[requests.Response, dict[str, Any]]:
+    ) -> Tuple[requests.Response, Dict[str, Any]]:
         response, payload = self._request_payload(
             method,
             path_or_url,
@@ -322,7 +320,7 @@ class Client:
         step: str,
         absolute_url: bool = False,
         **kwargs: Any,
-    ) -> tuple[requests.Response, dict[str, Any]]:
+    ) -> Tuple[requests.Response, Dict[str, Any]]:
         url = path_or_url if absolute_url else self._build_url(path_or_url)
 
         try:
@@ -340,7 +338,7 @@ class Client:
         payload = self._decode_json(response, step)
         return response, payload
 
-    def _decode_json(self, response: requests.Response, step: str) -> dict[str, Any]:
+    def _decode_json(self, response: requests.Response, step: str) -> Dict[str, Any]:
         try:
             payload = response.json()
         except ValueError as exc:
@@ -370,9 +368,9 @@ class Client:
     def _require_success(
         self,
         response: requests.Response,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         step: str,
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         if not payload.get("success"):
             message = payload.get("message") or "unknown error"
             raise NewAPIClientError(
@@ -399,7 +397,7 @@ class Client:
 
         return data
 
-    def _validate_login_data(self, data: dict[str, Any], *, response: requests.Response) -> None:
+    def _validate_login_data(self, data: Dict[str, Any], *, response: requests.Response) -> None:
         required_keys = {"id", "username", "display_name", "group", "role", "status"}
         missing = sorted(required_keys - data.keys())
         if missing:
@@ -456,9 +454,9 @@ class Client:
         message: str,
         *,
         response: requests.Response,
-        exception: Exception | None = None,
-        response_json: Any | None = None,
-        details: Any | None = None,
+        exception: Optional[Exception] = None,
+        response_json: Optional[Any] = None,
+        details: Optional[Any] = None,
     ) -> ErrorDetail:
         request = getattr(response, "request", None)
         body_excerpt = (response.text or "")[:MAX_ERROR_BODY] or None
@@ -475,7 +473,7 @@ class Client:
             details=details,
         )
 
-    def _try_response_json(self, response: requests.Response) -> Any | None:
+    def _try_response_json(self, response: requests.Response) -> Optional[Any]:
         try:
             return response.json()
         except ValueError:
@@ -484,7 +482,7 @@ class Client:
     def _build_url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
 
-    def _build_checkin_headers(self, user_id: str) -> dict[str, str]:
+    def _build_checkin_headers(self, user_id: str) -> Dict[str, str]:
         return {
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Origin": self.base_url,
@@ -506,7 +504,10 @@ class Client:
         return session
 
 
-def _wrap_request_with_timeout(request_method, timeout: int):
+def _wrap_request_with_timeout(
+    request_method: Callable[..., requests.Response],
+    timeout: int,
+) -> Callable[..., requests.Response]:
     def wrapped(method: str, url: str, **kwargs):
         kwargs.setdefault("timeout", timeout)
         return request_method(method, url, **kwargs)
@@ -600,7 +601,7 @@ if __name__ == "__main__":
         return str(value)
 
     def render_pairs(
-        pairs: list[tuple[str, Any]],
+        pairs: List[Tuple[str, Any]],
         *,
         stream,
         indent: str = "  ",
@@ -620,10 +621,10 @@ if __name__ == "__main__":
         indented = "\n".join(f"    {line}" for line in body.splitlines())
         return f"{heading}\n{indented}"
 
-    def build_user_summary(auth_result: AuthResult) -> list[tuple[str, Any]]:
+    def build_user_summary(auth_result: AuthResult) -> List[Tuple[str, Any]]:
         login = auth_result.login or {}
         profile = auth_result.profile or {}
-        summary_pairs: list[tuple[str, Any]] = []
+        summary_pairs: List[Tuple[str, Any]] = []
         for label, key in (
             ("User ID", "id"),
             ("Username", "username"),
@@ -647,8 +648,8 @@ if __name__ == "__main__":
         auth_result: AuthResult,
         *,
         base_url: str,
-        checkin_result: CheckinResult | None = None,
-        extra_results: dict[str, Any] | None = None,
+        checkin_result: Optional[CheckinResult] = None,
+        extra_results: Optional[Dict[str, Any]] = None,
         stream=sys.stdout,
     ) -> None:
         header = style("[OK]", ANSI_BOLD, ANSI_GREEN, stream=stream)
@@ -698,14 +699,14 @@ if __name__ == "__main__":
     def print_failure(
         detail: ErrorDetail,
         *,
-        auth_result: AuthResult | None = None,
+        auth_result: Optional[AuthResult] = None,
         stream=sys.stderr,
     ) -> None:
         header = style("[FAIL]", ANSI_BOLD, ANSI_RED, stream=stream)
         summary = style(detail.message, ANSI_BOLD, stream=stream)
         print(f"{header} {summary}", file=stream)
 
-        pairs: list[tuple[str, Any]] = [
+        pairs: List[Tuple[str, Any]] = [
             ("Step", detail.step),
             ("Error Type", detail.type),
         ]
@@ -761,7 +762,7 @@ if __name__ == "__main__":
             return 1
 
         try:
-            checkin_result: CheckinResult | None = None
+            checkin_result: Optional[CheckinResult] = None
             if args.checkin:
                 checkin_result = client.checkin()
                 if not checkin_result.success:
@@ -773,7 +774,7 @@ if __name__ == "__main__":
                     print_failure(detail, auth_result=auth_result)
                     return 1
 
-            extra_results: dict[str, Any] = {}
+            extra_results: Dict[str, Any] = {}
             if args.with_groups:
                 extra_results["groups"] = client.fetch_optional("/api/user/self/groups")
             if args.with_models:
