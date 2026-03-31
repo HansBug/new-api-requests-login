@@ -1,0 +1,61 @@
+name: Daily Check-In
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:45 UTC = 01:45 Asia/Shanghai (next day).
+    # The workflow then sleeps for 0-1800 seconds on scheduled runs,
+    # so the actual execution window is about 01:45-02:15 Beijing time.
+    - cron: '45 17 * * *'
+
+concurrency:
+  group: daily-checkin
+  cancel-in-progress: false
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NEW_API_BASE_URL: ${{ secrets.NEW_API_BASE_URL }}
+      NEW_API_USERNAME: ${{ secrets.NEW_API_USERNAME }}
+      NEW_API_PASSWORD: ${{ secrets.NEW_API_PASSWORD }}
+      NEW_API_2FA_CODE: ${{ secrets.NEW_API_2FA_CODE }}
+      NEW_API_TURNSTILE_TOKEN: ${{ secrets.NEW_API_TURNSTILE_TOKEN }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate Required Secrets
+        shell: bash
+        run: |
+          missing=0
+          for key in NEW_API_BASE_URL NEW_API_USERNAME NEW_API_PASSWORD; do
+            if [[ -z "${!key}" ]]; then
+              echo "Missing required repository secret: $key" >&2
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Random Delay For Scheduled Runs
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          delay=$(( RANDOM % 1801 ))
+          echo "Scheduled run detected. Sleeping for ${delay} seconds."
+          sleep "$delay"
+
+      - name: Run Login And Check-In
+        run: python newapi.py --checkin
