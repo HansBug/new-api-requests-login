@@ -1,0 +1,35 @@
+name: Date Deploy
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 6'
+
+concurrency:
+  group: date-deploy
+  cancel-in-progress: false
+
+jobs:
+  date:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Timestamp
+        shell: bash
+        run: |
+          mkdir -p public
+          date -u > public/README.md
+
+      - name: Deploy Date Branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          git-config-name: github-actions[bot]
+          git-config-email: 41898282+github-actions[bot]@users.noreply.github.com
+          branch: date-keep
+          folder: public
+          clean: true
